@@ -46,6 +46,7 @@ class zynthian_ctrldev_base:
 
     dev_ids = []			# String list that could identify the device
     dev_id = None  			# String that identifies the device
+    multi_device_ids = {}   # Map of ids to collect if the midi device has multiple devices to the unroute from chain
     fb_dev_id = None		# Index of zmop connected to controller input
     dev_zynpad = False		# Can act as a zynpad trigger device
     dev_zynmixer = False    # Can act as an audio mixer controller device

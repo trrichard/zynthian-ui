@@ -135,6 +135,7 @@ class zynthian_ctrldev_manager():
 
         # Load requested driver
         izmop = zynautoconnect.dev_in_2_dev_out(izmip)
+            
         try:
             # Create the driver instance
             driver = driver_class(self.state_manager, izmip, izmop)
@@ -151,7 +152,20 @@ class zynthian_ctrldev_manager():
             self.drivers[izmip] = driver
             if uid in self.disabled_devices:
                 self.disabled_devices.remove(uid)
+            if len(driver_class.multi_device_ids) > 0:
+                for id, unroute_from_chains in driver_class.multi_device_ids.items():
+                    extra_izimp = zynautoconnect.get_device_in_index_by_name(id)
+                    if unroute_from_chains:
+                        if isinstance(unroute_from_chains, bool):
+                            lib_zyncore.zmip_set_ui_midi_chans(extra_izimp, 0xFFFF)
+                        elif isinstance(unroute_from_chains, int):
+                            lib_zyncore.zmip_set_ui_midi_chans(extra_izimp, unroute_from_chains)
+                    else:
+                        lib_zyncore.zmip_set_ui_midi_chans(extra_izimp, 0)
+                    self.drivers[extra_izimp] = driver
+                        
             logging.info(f"Loaded ctrldev driver '{driver_class.get_driver_name()}' for '{dev_id}'.")
+        
             return True
         except Exception as e:
             logging.error(f"Can't load ctrldev driver '{driver_class.get_driver_name()}' for '{dev_id}' => {e}")
@@ -248,7 +262,10 @@ class zynthian_ctrldev_manager():
 
         # Try device driver ...
         if idev in self.drivers:
-            return self.drivers[idev].midi_event(ev)
+            if len(self.drivers[idev].multi_device_ids) > 0:
+                return self.drivers[idev].midi_event(ev, idev=idev)
+            else:
+                return self.drivers[idev].midi_event(ev)
 
         return False
 

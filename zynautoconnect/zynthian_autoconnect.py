@@ -197,6 +197,15 @@ def dev_in_2_dev_out(zmip):
     except:
         return None
 
+def get_device_in_index_by_name(name):
+    """
+    Gets the device's index from it's name
+    
+    :param name: Description
+    """
+    for i, port in enumerate(devices_in):
+        if port and port.aliases[1] == name:
+            return i
 
 def set_midi_port_names(port_names):
     """Set port friendly names from map
