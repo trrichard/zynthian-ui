@@ -48,6 +48,8 @@ from collections import namedtuple
 
 Button = namedtuple("Button", ["sysex", "note", "chan"], defaults=[0, 0, 0])
 
+# https://github.com/bitwig/bitwig-extensions/blob/953f4be03da06dcbfa7efdd42a5e2236c9a3b77e/src/main/java/com/bitwig/extensions/controllers/arturia/keylab/mk2/ButtonId.java
+
 TRACK_SOLO = 8
 TRACK_MUTE = 16
 TRACK_RECORD = 0
@@ -64,7 +66,7 @@ TRANSPORT_BACK = 91
 TRANSPORT_FORWARD = 92
 TRANSPORT_STOP = 93
 TRANSPORT_PLAY_PAUSE = 94
-TRANSPORT_RECORD = 95
+TRANSPORT_RECORD = Button(0x6E, 0x5F)
 TRANSPORT_LOOP = 86
 
 
@@ -135,9 +137,11 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad):#zynthian_
         # No idea how to do that yet. 
         self.global_audio_mode = True
         self.global_midi_mode = True
+        self.record_pressed = False
         self.cols = 4
-        self.last_metro_press_time = 0
         self.rows = 4
+        self.last_metro_press_time = 0
+        
         # NOTE: init will call refresh(), so _current_hanlder must be ready!
         super().__init__(state_manager, idev_in, idev_out)
 
@@ -241,6 +245,10 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad):#zynthian_
                 if note == GLOBAL_OUT.note:
                     self.global_audio_mode = not self.global_audio_mode
                     self.setButtonState(GLOBAL_OUT.sysex, self.global_audio_mode)
+                if note == TRANSPORT_RECORD.note:
+                    self.record_pressed = not self.record_pressed
+                    self.setButtonState(TRANSPORT_RECORD.sysex, self.record_pressed)
+                    self.state_manager.send_cuia("TOGGLE_RECORD")
                 if note == GLOBAL_METRO.note:
                     now = time.time()
                     if now - self.last_metro_press_time > 0.1:
