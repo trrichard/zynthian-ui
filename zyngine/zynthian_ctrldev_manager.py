@@ -169,6 +169,7 @@ class zynthian_ctrldev_manager():
             return True
         except Exception as e:
             logging.error(f"Can't load ctrldev driver '{driver_class.get_driver_name()}' for '{dev_id}' => {e}")
+            raise e
             return False
 
     def unload_driver(self, izmip, disable=False):

@@ -226,6 +226,7 @@ class zynthian_gui_tempo(zynthian_gui_base):
 
             elif zctrl == self.mtr_enable_zctrl:
                 self.libseq.enableMetronome(zctrl.value)
+                zynsigman.send(zynsigman.S_STEPSEQ, self.state_manager.zynseq.SS_SEQ_METRONOME, enabled=zctrl.value)
                 logging.debug("SETTING METRONOME ENABLE: {}".format(zctrl.value))
                 self.replot = True
 

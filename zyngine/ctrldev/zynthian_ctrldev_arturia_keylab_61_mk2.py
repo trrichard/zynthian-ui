@@ -3,7 +3,7 @@
 # ******************************************************************************
 # ZYNTHIAN PROJECT: Zynthian Control Device Driver
 #
-# Zynthian Control Device Driver for "Akai APC Key 25 mk2"
+# Zynthian Control Device Driver for "Arturia Keylab 61 Mk2"
 #
 # Copyright (C) 2023-2025 Oscar Aceña <oscaracena@gmail.com>
 #
@@ -33,6 +33,7 @@ import multiprocessing as mp
 from functools import partial
 from threading import Thread, RLock, Event
 
+from zyngine import zynthian_state_manager
 from zynlibs.zynseq import zynseq
 from zyncoder.zyncore import lib_zyncore
 from zyngine.zynthian_signal_manager import zynsigman
@@ -43,159 +44,68 @@ from zyngine.ctrldev.zynthian_ctrldev_base_extended import RunTimer, KnobSpeedCo
 from zyngine.ctrldev.zynthian_ctrldev_base_ui import ModeHandlerBase
 from zyngine.ctrldev.zynthian_ctrldev_base import zynthian_ctrldev_base
 
+from collections import namedtuple
+
+Button = namedtuple("Button", ["sysex", "note", "chan"], defaults=[0, 0, 0])
+
+TRACK_SOLO = 8
+TRACK_MUTE = 16
+TRACK_RECORD = 0
+TRACK_READ = 56
+TRACK_WRITE = 57
+
+GLOBAL_SAVE = 74
+GLOBAL_IN = Button(0x66, 0x57)
+GLOBAL_OUT = Button(0x67, 0x58)
+GLOBAL_METRO = Button(0x68, 0x59)
+GLOBAL_UNDO = 81
+
+TRANSPORT_BACK = 91
+TRANSPORT_FORWARD = 92
+TRANSPORT_STOP = 93
+TRANSPORT_PLAY_PAUSE = 94
+TRANSPORT_RECORD = 95
+TRANSPORT_LOOP = 86
 
 
-# FIXME: these defines should be taken from where they are defined (zynseq.h)
-MAX_STUTTER_COUNT = 32
-MAX_STUTTER_DURATION = 96
+# Pads come in on the DAW channel nine notes 36 and up
+# Pad colors go out on sysex index 0x70 and up
+PAD_MIDI_OFFSET = 36
+PAD_SYSEX_OFFSET = 0x70
 
-# MIDI channel events (first 4 bits), next 4 bits is the channel!
-EV_NOTE_ON = 0x09
-EV_NOTE_OFF = 0x08
-EV_CC = 0x0B
 
-# MIDI system events (first 8 bits)
-EV_SYSEX = 0xF0
-EV_CLOCK = 0xF8
-EV_CONTINUE = 0xFB
-
-# APC Key25 buttons
-BTN_SHIFT = 0x62
-BTN_STOP_ALL_CLIPS = 0x51
-BTN_PLAY = 0x5E
-BTN_RECORD = 0x5F
-
-BTN_TRACK_1 = BTN_UP = 0x40
-BTN_TRACK_2 = BTN_DOWN = 0x41
-BTN_TRACK_3 = BTN_LEFT = 0x42
-BTN_TRACK_4 = BTN_RIGHT = 0x43
-BTN_TRACK_5 = BTN_KNOB_CTRL_VOLUME = 0x44
-BTN_TRACK_6 = BTN_KNOB_CTRL_PAN = 0x45
-BTN_TRACK_7 = BTN_KNOB_CTRL_SEND = 0x46
-BTN_TRACK_8 = BTN_KNOB_CTRL_DEVICE = 0x47
-
-BTN_SOFT_KEY_START = 0x52
-BTN_SOFT_KEY_END = 0x56
-BTN_SOFT_KEY_CLIP_STOP = BTN_KNOB_1 = 0x52
-BTN_SOFT_KEY_SOLO = BTN_KNOB_2 = 0x53
-BTN_SOFT_KEY_MUTE = BTN_KNOB_3 = 0x54
-BTN_SOFT_KEY_REC_ARM = BTN_KNOB_4 = 0x55
-BTN_SOFT_KEY_SELECT = 0x56
-
-BTN_PAD_START = 0x00
-BTN_PAD_END = 0x27
-BTN_PAD_29 = BTN_ALT = 0x1C
-BTN_PAD_30 = BTN_METRONOME = 0x1D
-BTN_PAD_31 = BTN_PAD_STEP = 0x1E
-BTN_PAD_37 = BTN_OPT_ADMIN = 0x24
-BTN_PAD_38 = BTN_MIX_LEVEL = 0x25
-BTN_PAD_39 = BTN_CTRL_PRESET = 0x26
-BTN_PAD_40 = BTN_ZS3_SHOT = 0x27
-BTN_PAD_5 = BTN_PAD_LEFT = 0x04
-BTN_PAD_6 = BTN_PAD_DOWN = 0x05
-BTN_PAD_7 = BTN_PAD_RIGHT = 0x06
-BTN_PAD_8 = BTN_F4 = 0x07
-BTN_PAD_13 = BTN_BACK_NO = 0x0C
-BTN_PAD_14 = BTN_PAD_UP = 0x0D
-BTN_PAD_15 = BTN_SEL_YES = 0x0E
-BTN_PAD_16 = BTN_F3 = 0x0F
-BTN_PAD_21 = BTN_PAD_RECORD = 0x14
-BTN_PAD_23 = BTN_PAD_PLAY = 0x16
-BTN_PAD_24 = BTN_F2 = 0x17
-BTN_PAD_32 = BTN_F1 = 0x1F
-
-# APC Key25 knobs
-KNOB_1 = KNOB_LAYER = 0x30
-KNOB_2 = KNOB_SNAPSHOT = 0x31
-KNOB_3 = 0x32
-KNOB_4 = 0x33
-KNOB_5 = KNOB_BACK = 0x34
-KNOB_6 = KNOB_SELECT = 0x35
-KNOB_7 = 0x36
-KNOB_8 = 0x37
-
-# APC Key25 MK2 LED colors and modes
-class COLORS:
-    COLOR_BLACK = 0x00
-    COLOR_DARK_GREY = 0x01
-    COLOR_RED = 0x05
-    COLOR_GREEN = COLOR_STATE_1 = 0x15
-    COLOR_BLUE = COLOR_STATE_0 = 0x25
-    COLOR_AQUA = 0x21
-    COLOR_BLUE_DARK = COLOR_ALT_OFF = 0x2D
-    COLOR_BLUE_LIGHT = 0x24
-    COLOR_WHITE = COLOR_FN = 0x03
-    COLOR_EGYPT = 0x6C
-    COLOR_ORANGE = COLOR_STATE_2 = 0x09
-    COLOR_ORANGE_LIGHT = 0x08
-    COLOR_AMBER = 0x54
-    COLOR_RUSSET = 0x3D
-    COLOR_PURPLE = COLOR_ALT_ON = 0x51
-    COLOR_PINK = 0x39
-    COLOR_PINK_LIGHT = 0x52
-    COLOR_PINK_WARM = 0x38
-    COLOR_YELLOW = 0x0D
-    COLOR_LIME = COLOR_PLAYING = 0x4B
-    COLOR_LIME_DARK = 0x11
-    COLOR_DARK_GREEN = 0x41
-    COLOR_GREEN_YELLOW = 0x4A
-    COLOR_BROWNISH_RED = 0x0A
-    COLOR_BROWN_LIGHT = 0x7E
-    SOFT_OFF = 0x00
-    SOFT_ON = 0x01
-    SOFT_BLINK = 0x02
-
-# mk2: midi channel,
-# mk1: midi channel stays 0, always on, blink is color + 1
-    # 0=off,
-    # 1=green,
-    # 2=green blink,
-    # 3=red,
-    # 4=red blink,
-    # 5=yellow,
-    # 6=yellow blink,
-    # 7-127=green
-
-LED_BRIGHT_10 = 0x00
-LED_BRIGHT_25 = 0x01
-LED_BRIGHT_50 = 0x02
-LED_BRIGHT_65 = 0x03
-LED_BRIGHT_75 = 0x04
-LED_BRIGHT_90 = 0x05
-LED_BRIGHT_100 = 0x06
-LED_PULSING_16 = 0x07
-LED_PULSING_8 = 0x08
-LED_PULSING_4 = 0x09
-LED_PULSING_2 = 0x0A
-LED_BLINKING_24 = 0x0B
-LED_BLINKING_16 = 0x0C
-LED_BLINKING_8 = 0x0D
-LED_BLINKING_4 = 0x0E
-LED_BLINKING_2 = 0x0F
-
-# Function/State constants
-FN_VOLUME = 0x01
-FN_PAN = 0x02
-FN_SOLO = 0x03
-FN_MUTE = 0x04
-FN_REC_ARM = 0x05
-FN_SELECT = 0x06
-FN_SCENE = 0x07
-FN_SEQUENCE_MANAGER = 0x08
-FN_COPY_SEQUENCE = 0x09
-FN_MOVE_SEQUENCE = 0x0A
-FN_CLEAR_SEQUENCE = 0x0B
-FN_PLAY_NOTE = 0x0C
-FN_REMOVE_NOTE = 0x0D
-FN_REMOVE_PATTERN = 0x0F
-FN_SELECT_PATTERN = 0x10
-FN_CLEAR_PATTERN = 0x11
+def pad_seq_index_inversion(pad_or_seq_index):
+    """
+    The pads on the arturia are row major and on the zynthian
+    they are column major. This function converts between the two
+    
+    :param pad_or_seq_index: Description
+    """
+    return (pad_or_seq_index % 4 * 4) + pad_or_seq_index // 4 
 
 
 # --------------------------------------------------------------------------
-# 'Akai APC Key 25 mk2' device controller class
+# 'Arturia Keylab 61 Mk2' device controller class
 # --------------------------------------------------------------------------
-class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_base):#zynthian_ctrldev_zynmixer, zynthian_ctrldev_zynpad):
+class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad):#zynthian_ctrldev_zynmixer, zynthian_ctrldev_zynpad):
+    """
+    The Arturia Keylab 61 Mk2 
+    - has 4x4 pad area
+    - pitch shift
+    - 61 piano keys
+    - track control, global control and transport control buttons
+    - and an 8 x mixing set with 8x(1  encoder, 1 fader and 1 toggle button) + 1 master.
+
+    
+    This driver
+    - allows enabling/disabling midi transport control via the "Global Controls IN"
+    - allows enabling/disabling audio transport control via the "Global Controls OUT"
+    
+    Resources:
+    - https://downloads.arturia.com/products/keylab-49-mkII/manual/keylab-mk2_Manual_1_0_0_EN.pdf
+    - https://github.com/bitwig/bitwig-extensions/tree/953f4be03da06dcbfa7efdd42a5e2236c9a3b77e/src/main/java/com/bitwig/extensions/controllers/arturia/keylab/mk2
+    - https://github.com/mhugo/sysex/blob/dc3c43de2e17565b6713414f42adb76efa71b702/README.md
+    """
 
     dev_ids = ["KeyLab mkII 61 IN 1"]
     multi_device_ids = {"KeyLab mkII 61 2": True}
@@ -204,51 +114,159 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_base):#zynthian_ct
     # Unroute 9: pads 
     unroute_from_chains = 0b0000001000000000 # allow most channels. 
 
-    COLOR_SET = COLORS
+    # TODO: Are these colors any good?
+    PAD_COLORS = [
+        (127, 0, 0), (0, 127, 0), (0, 0, 127), (127, 127, 0),
+        (127, 0, 127), (0, 127, 127), (127, 64, 0), (127, 0, 64),
+        (0, 127, 64), (64, 127, 0), (0, 64, 127), (64, 0, 127),
+        (127, 127, 127), (80, 80, 80), (40, 40, 40), (0, 0, 0)
+    ]
+    COLOR_PLAYING = (0, 127, 0)
+    COLOR_STARTING = (127, 127, 0)
+    COLOR_STOPPING = (127, 0, 0)
+    COLOR_EMPTY = (0, 0, 0)
 
-    def __init__(self, state_manager, idev_in, idev_out=None):
+
+
+    def __init__(self, state_manager: zynthian_state_manager, idev_in, idev_out=None):
         logging.info("initializing {} with port in:{} out:{}".format(self.driver_name, idev_in, idev_out))
-      
+
+        # Ideally these settings could be customized by user via GUI.
+        # No idea how to do that yet. 
+        self.global_audio_mode = True
+        self.global_midi_mode = True
+        self.cols = 4
+        self.last_metro_press_time = 0
+        self.rows = 4
         # NOTE: init will call refresh(), so _current_hanlder must be ready!
         super().__init__(state_manager, idev_in, idev_out)
 
     def init(self):
         super().init()
-    
+        self._enter_daw_mode()
+        zynsigman.register(zynsigman.S_STEPSEQ, self.state_manager.zynseq.SS_SEQ_METRONOME_STATE, self.update_metronome)
+        self._send_display_sysex("Zynthian", "Connected")
+
+    def _enter_daw_mode(self):
+        """Enters DAW mode and sets the DAW preset to Live."""
+        if self.idev_out is None:
+            return
+
+        # Init DAW preset in Live mode (DAWMode.Live.getID() is 0x02)
+        msg1 = bytearray.fromhex("F0 00 20 6B 7F 42 02 00 40 52 02 F7")
+        lib_zyncore.dev_send_midi_event(self.idev_out, bytes(msg1), len(msg1))
+
+        # Set to DAW mode
+        msg2 = bytearray.fromhex("F0 00 20 6B 7F 42 05 02 F7")
+        lib_zyncore.dev_send_midi_event(self.idev_out, bytes(msg2), len(msg2))
 
     def end(self):
         super().end()
+        zynsigman.unregister(zynsigman.S_STEPSEQ, self.state_manager.zynseq.SS_SEQ_METRONOME_STATE, self.update_metronome)
         #zynthian_ctrldev_zynpad.end(self)
 
     def refresh(self):
-        # PadMatrix is handled in volume/pan modes (when mixer handler is active)
-        logging.info("refresh")
-        # super.refresh()
+        super().refresh()
+    
+    def update_metronome(self, enabled):
+        self.setButtonState(GLOBAL_METRO.sysex, enabled)
+
+    def update_seq_state(self, bank, seq, state, mode, group):
+        dim_ratio = 32
+        if self.idev_out is None or bank != self.zynseq.bank:
+            return
+        
+        if seq >= 16:
+            return
+
+        # Map zynpad seq to Arturia pad number (1-16) then to led_id (0x70-0x7F)
+        pad_number = (seq % 4 * 4 ) + seq // 4 
+        # pad_number = (3 - (seq // 4)) * 4 + (seq % 4) + 1
+        led_id = 0x70 + pad_number 
+        
+        if mode == 0: # Empty
+            r, g, b = self.COLOR_EMPTY
+        elif state == zynseq.SEQ_STOPPED:
+            r, g, b = self.PAD_COLORS[group % len(self.PAD_COLORS)]
+            # dim it
+            r, g, b = r // dim_ratio, g // dim_ratio, b // dim_ratio
+        elif state == zynseq.SEQ_PLAYING:
+            r, g, b = self.PAD_COLORS[group % len(self.PAD_COLORS)]
+        elif state == zynseq.SEQ_STOPPING:
+            r, g, b = self.COLOR_STOPPING
+        elif state == zynseq.SEQ_STARTING:
+            r, g, b = self.COLOR_STARTING
+        else:
+            r, g, b = self.COLOR_EMPTY
+
+        self._send_led_sysex(led_id, r, g, b)
+
        
     def midi_event(self, ev, idev=None):
         """ get a midi event  and do something with it. """
-        logging.info("event {} on {}".format(ev, idev))
+        self._log_midi(ev, idev)
+
+        if ev == b'\xf0\x00\x20\x6b\x7f\x42\x02\x00\x00\x15\x00\xf7':
+            # if we get the switch back into daw mode
+            self.refresh()
+            return True
+        
         evtype = (ev[0] >> 4) & 0x0F
-        evchan = ev[0] & 0x0F
-        # Note ON
-        if evtype == 0x9:
-            note = ev[1] & 0x7F
-            vel = ev[2] & 0x7F
-            logging.info("event ON ev: {} note:{} vel:{} channel: {}".format(ev, note, vel, evchan))
-            #logging.debug(f"Chan {evchan}, Note ON {note}")
-            PLAYING_COLOR = 21
-            if vel > 0:
-                lib_zyncore.dev_send_note_on(self.idev_out, 0, note, vel)
-            else:
-                lib_zyncore.dev_send_note_on(self.idev_out, 0, note, 0)
+        evchan = ev[0] & 0x0F # exists even if invalid for system messages
+            
+        if idev != self.idev:
+            # DAW controller MIDI device
+            if evtype == 0x9:
+                # note on
+                note = ev[1] & 0x7F
+                _vel = ev[2] & 0x7F
+                if note == TRANSPORT_PLAY_PAUSE:
+                    # play/pause button
+                    # todo should there be one transport toggle? Seems weird these are separate. 
+                    if self.global_midi_mode:
+                        self.state_manager.toggle_midi_playback()
+                    if self.global_audio_mode:
+                        self.state_manager.toggle_audio_player()
+                    
+                if note == TRANSPORT_STOP:
+                    # play/pause button
+                    # todo should there be one transport toggle? Seems weird these are separate. 
+                    if self.global_midi_mode:
+                        self.state_manager.stop_midi_playback()
+                    if self.global_audio_mode:
+                        self.state_manager.stop_audio_player()
+                if note == GLOBAL_IN.note:
+                    self.global_midi_mode = not self.global_midi_mode
+                    self.setButtonState(GLOBAL_IN.sysex, self.global_midi_mode)
+                if note == GLOBAL_OUT.note:
+                    self.global_audio_mode = not self.global_audio_mode
+                    self.setButtonState(GLOBAL_OUT.sysex, self.global_audio_mode)
+                if note == GLOBAL_METRO.note:
+                    now = time.time()
+                    if now - self.last_metro_press_time > 0.1:
+                        self.last_metro_press_time = now
+                        is_enabled = self.zynseq.libseq.isMetronomeEnabled()
+                        self.zynseq.libseq.enableMetronome(not is_enabled)
+                        zynsigman.send(zynsigman.S_STEPSEQ, self.state_manager.zynseq.SS_SEQ_METRONOME, enabled=not is_enabled)
+                    # The signal will trigger update_metronome
+                    # this doesn't work yet TODO move metronome setting into the zynseq class
+                    # so the signal management works
+
+            if evchan == 9 and evtype == 0x9:
+                # note off
+                note = ev[1] & 0x7F
+                vel = ev[2] & 0x7F
+                if 36 <= note <= 51 and vel > 0:
+                    # This is a pad press.
+                    # Map Arturia note to zynpad seq
+                    seq = pad_seq_index_inversion(note - PAD_MIDI_OFFSET)
+                    if seq < self.zynseq.seq_in_bank:
+                        self.zynseq.libseq.togglePlayState(self.zynseq.bank, seq)
+                    return True
+
             return True
-        # Note OFF
-        elif evtype == 0x8:
-            note = ev[1] & 0x7F
-            #logging.debug(f"Chan {evchan}, Note OFF {note}")
-            lib_zyncore.dev_send_note_on(self.idev_out, 0, note, 0)
-            return True
-        return False
+        else:
+            return False
 
 
 #    def update_mixer_strip(self, chan, symbol, value):
@@ -268,24 +286,122 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_base):#zynthian_ct
 #        active_chain - Active chain
 #        """
 #        pass
-#
-#    def update_seq_state(self, bank, seq, state=None, mode=None, group=None):
-#        """Update hardware indicators for a sequence (pad): playing state etc.
-#        *SHOULD* be implemented by child class
-#
-#        bank - bank
-#        seq - sequence index
-#        state - sequence's state
-#        mode - sequence's mode
-#        group - sequence's group
-#        """
-#        pass
-#
-#    def pad_off(self, col, row):
-#        """Light-Off the pad specified with column & row
-#        *SHOULD* be implemented by child class
-#        """
-#        pass
-#
-#
-#  
+
+ 
+
+    def _log_midi(self, ev, idev):
+        if not ev:
+            return
+
+        status = ev[0]
+        raw_hex = " ".join("{:02X}".format(b) for b in ev)
+        msg_desc = ""
+
+
+        if status >= 0xF0:
+            # System Messages
+            if status == 0xF0: msg_desc = "SysEx"
+            elif status == 0xF1: msg_desc = "MTC Quarter Frame"
+            elif status == 0xF2:
+                val = (ev[1] & 0x7F if len(ev) > 1 else 0) | ((ev[2] & 0x7F if len(ev) > 2 else 0) << 7)
+                msg_desc = "Song Position {}".format(val)
+            elif status == 0xF3:
+                msg_desc = "Song Select {}".format(ev[1] & 0x7F if len(ev) > 1 else 0)
+            elif status == 0xF6: msg_desc = "Tune Request"
+            elif status == 0xF7: msg_desc = "EOX"
+            elif status == 0xF8: msg_desc = "Clock"
+            elif status == 0xFA: msg_desc = "Start"
+            elif status == 0xFB: msg_desc = "Continue"
+            elif status == 0xFC: msg_desc = "Stop"
+            elif status == 0xFE: msg_desc = "Active Sensing"
+            elif status == 0xFF: msg_desc = "Reset"
+            else: msg_desc = "System Undefined"
+        elif status >= 0x80:
+            # Channel Messages
+            cmd = status & 0xF0
+            chan = (status & 0x0F) 
+            d1 = ev[1] & 0x7F if len(ev) > 1 else 0
+            d2 = ev[2] & 0x7F if len(ev) > 2 else 0
+            
+            if cmd == 0x80: msg_desc = "Note Off Ch={} Note={} Vel={}".format(chan, d1, d2)
+            elif cmd == 0x90: msg_desc = "Note {} Ch={} Note={} Vel={}".format("Off" if d2 == 0 else "On", chan, d1, d2)
+            elif cmd == 0xA0: msg_desc = "Poly Pressure Ch={} Note={} Val={}".format(chan, d1, d2)
+            elif cmd == 0xB0: msg_desc = "CC Ch={} Ctrl={} Val={}".format(chan, d1, d2)
+            elif cmd == 0xC0: msg_desc = "PC Ch={} Prog={}".format(chan, d1)
+            elif cmd == 0xD0: msg_desc = "Channel Pressure Ch={} Val={}".format(chan, d1)
+            elif cmd == 0xE0: msg_desc = "Pitch Bend Ch={} Val={}".format(chan, d1 | (d2 << 7))
+        else:
+            msg_desc = "Unknown/Data"
+
+        # self._send_display_sysex(msg_desc, raw_hex)
+        logging.info("MIDI: idev={} [{}] {}".format(idev, msg_desc, raw_hex))
+
+    def _send_led_sysex(self, led_id, r, g, b):
+        """Sends a SysEx message to the Arturia Keylab 61 Mk2 to control an LED."""
+        if self.idev_out is None:
+            return
+
+        # Start of the SysEx message
+        msg = bytearray.fromhex("F0 00 20 6B 7F 42 02 00 16")
+
+        # Append LED ID and color values
+        msg.append(led_id)
+        msg.append(r)
+        msg.append(g)
+        msg.append(b)
+
+        # End of SysEx
+        msg.append(0xF7)
+
+        lib_zyncore.dev_send_midi_event(self.idev_out, bytes(msg), len(msg))
+
+    def _send_display_sysex(self, upper, lower):
+        """Sends a SysEx message to the Arturia Keylab 61 Mk2 to display text on its screen.
+
+        The Keylab's display has two lines. This method sets the text for both.
+
+        Args:
+            upper (str): The text to display on the upper line (max 16 chars).
+            lower (str): The text to display on the lower line (max 16 chars).
+        """
+        if self.idev_out is None:
+            return
+
+        # Start of the SysEx message
+        msg = bytearray.fromhex("F0 00 20 6B 7F 42 04 00 60 01")
+
+        # Append upper string, padded to 16 bytes with nulls
+        upper_bytes = upper.encode('ascii', 'ignore')
+        upper_bytes = upper_bytes[:16].ljust(16, b'\x00')
+        msg.extend(upper_bytes)
+
+        # Append static part
+        msg.extend(bytearray.fromhex("00 02"))
+
+        # Append lower string, padded to 16 bytes with nulls
+        lower_bytes = lower.encode('ascii', 'ignore')
+        lower_bytes = lower_bytes[:16].ljust(16, b'\x00')
+        msg.extend(lower_bytes)
+
+        msg.extend(bytearray.fromhex("00 F7"))
+        lib_zyncore.dev_send_midi_event(self.idev_out, bytes(msg), len(msg))
+    
+    def setButtonState(self, sysex_id, is_on):
+        """Sends a SysEx message to set the state of a button LED."""
+        if self.idev_out is None:
+            return
+
+        intensity = 0x7f if is_on else 0x04
+        msg = bytearray.fromhex("F0 00 20 6B 7F 42 02 00 10")
+        msg.append(sysex_id)
+        msg.append(intensity)
+        msg.append(0xF7)
+
+        lib_zyncore.dev_send_midi_event(self.idev_out, bytes(msg), len(msg))
+    
+    def pad_off(self, col, row):
+        seq = row * self.cols + col
+        if seq < 16:
+            pad_number = pad_seq_index_inversion(seq)
+            led_id = PAD_SYSEX_OFFSET + pad_number
+            self._send_led_sysex(led_id, 0, 0, 0)
