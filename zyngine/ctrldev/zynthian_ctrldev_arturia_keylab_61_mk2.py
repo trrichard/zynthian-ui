@@ -75,6 +75,17 @@ TRANSPORT_LOOP = 86
 PAD_MIDI_OFFSET = 36
 PAD_SYSEX_OFFSET = 0x70
 
+SELECT_1 = Button(0x22, 0x18)
+SELECT_2 = Button(0x23, 0x19)
+SELECT_3 = Button(0x24, 0x1A)
+SELECT_4 = Button(0x25, 0x1B)
+SELECT_5 = Button(0x26, 0x1C)
+SELECT_6 = Button(0x27, 0x1D)
+SELECT_7 = Button(0x28, 0x1E)
+SELECT_8 = Button(0x29, 0x1F)
+SELECT_MULTI = Button(0x2A, 0x33)
+ 
+
 
 def pad_seq_index_inversion(pad_or_seq_index):
     """
@@ -89,7 +100,7 @@ def pad_seq_index_inversion(pad_or_seq_index):
 # --------------------------------------------------------------------------
 # 'Arturia Keylab 61 Mk2' device controller class
 # --------------------------------------------------------------------------
-class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad):#zynthian_ctrldev_zynmixer, zynthian_ctrldev_zynpad):
+class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad, zynthian_ctrldev_zynmixer):
     """
     The Arturia Keylab 61 Mk2 
     - has 4x4 pad area
@@ -140,6 +151,7 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad):#zynthian_
         self.record_pressed = False
         self.cols = 4
         self.rows = 4
+        self._chain_manager = state_manager.chain_manager
         self.last_metro_press_time = 0
         
         # NOTE: init will call refresh(), so _current_hanlder must be ready!
@@ -259,6 +271,8 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad):#zynthian_
                     # The signal will trigger update_metronome
                     # this doesn't work yet TODO move metronome setting into the zynseq class
                     # so the signal management works
+                if note >= SELECT_1.note and note <= SELECT_8.note:
+                    self._chain_manager.set_active_chain_by_id(note - SELECT_1.note + 1)
 
             if evchan == 9 and evtype == 0x9:
                 # note off
@@ -275,27 +289,34 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad):#zynthian_
             return True
         else:
             return False
+    
+    def update_mixer_strip(self, chan, symbol, value):
+        """Update hardware indicators for a mixer strip: mute, solo, level, balance, etc.
+        *SHOULD* be implemented by child class
 
+        chan - Mixer strip index
+        symbol - Control name
+        value - Control value
+        """
+        # we could probably update color based on if a chain is present/solo/mute etc
+        # keylab doesn't have level/balance indicatiors
+        pass
 
-#    def update_mixer_strip(self, chan, symbol, value):
-#        """Update hardware indicators for a mixer strip: mute, solo, level, balance, etc.
-#        *SHOULD* be implemented by child class
-#
-#        chan - Mixer strip index
-#        symbol - Control name
-#        value - Control value
-#        """
-#        pass
-#
-#    def update_mixer_active_chain(self, active_chain):
-#        """Update hardware indicators for active_chain
-#        *SHOULD* be implemented by child class
-#
-#        active_chain - Active chain
-#        """
-#        pass
+    def update_mixer_active_chain(self, active_chain):
+        """Update hardware indicators for active_chain
+        *SHOULD* be implemented by child class
 
- 
+        active_chain - Active chain
+        """
+        chain_page = active_chain//8
+        chain_index_in_page = active_chain % 8 - 1
+        print(chain_index_in_page)
+
+        for i in range(SELECT_1.sysex, SELECT_1.sysex + 8):
+            self._send_led_sysex(i, 0, 0, 0)
+        
+        self._send_led_sysex(SELECT_1.sysex + chain_index_in_page, 127, 0, 0)
+
 
     def _log_midi(self, ev, idev):
         if not ev:
