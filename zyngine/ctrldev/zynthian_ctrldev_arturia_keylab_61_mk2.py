@@ -289,7 +289,7 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad, zynthian_c
                         self.last_metro_press_time = now
                         is_enabled = self.zynseq.libseq.isMetronomeEnabled()
                         self.zynseq.libseq.enableMetronome(not is_enabled)
-                        zynsigman.send(zynsigman.S_STEPSEQ, self.state_manager.zynseq.SS_SEQ_METRONOME, enabled=not is_enabled)
+                        zynsigman.send(zynsigman.S_STEPSEQ, self.state_manager.zynseq.SS_SEQ_METRONOME_STATE, enabled=not is_enabled)
                     # The signal will trigger update_metronome
                     # this doesn't work yet TODO move metronome setting into the zynseq class
                     # so the signal management works
