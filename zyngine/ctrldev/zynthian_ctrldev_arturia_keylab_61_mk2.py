@@ -50,17 +50,49 @@ Button = namedtuple("Button", ["sysex", "note", "chan"], defaults=[0, 0, 0])
 
 # https://github.com/bitwig/bitwig-extensions/blob/953f4be03da06dcbfa7efdd42a5e2236c9a3b77e/src/main/java/com/bitwig/extensions/controllers/arturia/keylab/mk2/ButtonId.java
 
+# Pads
+PAD1 = Button(0x70, 36, 9)
+# PAD2-PAD15 = Button(0x71-0x7E, 37-50, 9)
+PAD16 = Button(0x7F, 51, 9)
+
+# Pads come in on the DAW channel nine notes 36 and up
+# Pad colors go out on sysex index 0x70 and up
+PAD_MIDI_OFFSET = 36
+PAD_SYSEX_OFFSET = 0x70
+
+# Track controls
+SOLO = Button(0x60, 0x08)
+MUTE = Button(0x61, 0x10)
+RECORD_ARM = Button(0x62, 0x00)
+READ = Button(0x63, 0x38)
+WRITE = Button(0x64, 0x39)
+
 TRACK_SOLO = 8
 TRACK_MUTE = 16
 TRACK_RECORD = 0
 TRACK_READ = 56
 TRACK_WRITE = 57
 
+# Global controls
+SAVE = Button(0x65, 0x4A)
+PUNCH_IN = Button(0x66, 0x57)
+PUNCH_OUT = Button(0x67, 0x58)
+METRO = Button(0x68, 0x59)
+UNDO = Button(0x69, 0x51)
+
 GLOBAL_SAVE = 74
 GLOBAL_IN = Button(0x66, 0x57)
 GLOBAL_OUT = Button(0x67, 0x58)
 GLOBAL_METRO = Button(0x68, 0x59)
 GLOBAL_UNDO = 81
+
+# Transport controls
+REWIND = Button(0x6A, 0x5B)
+FORWARD = Button(0x6B, 0x5C)
+STOP = Button(0x6C, 0x5D)
+PLAY_OR_PAUSE = Button(0x6D, 0x5E)
+RECORD = Button(0x6E, 0x5F)
+LOOP = Button(0x6F, 0x56)
 
 TRANSPORT_BACK = 91
 TRANSPORT_FORWARD = 92
@@ -69,12 +101,17 @@ TRANSPORT_PLAY_PAUSE = 94
 TRANSPORT_RECORD = Button(0x6E, 0x5F)
 TRANSPORT_LOOP = 86
 
+# Preset controls
+PRESET_PREVIOUS = Button(0x1A, 0x62)
+PRESET_NEXT = Button(0x1B, 0x63)
+WHEEL_CLICK = Button(0, 0x54)
 
-# Pads come in on the DAW channel nine notes 36 and up
-# Pad colors go out on sysex index 0x70 and up
-PAD_MIDI_OFFSET = 36
-PAD_SYSEX_OFFSET = 0x70
+# Navigation controls
+NEXT = Button(0x1F, 0x31)
+PREVIOUS = Button(0x20, 0x30)
+BANK = Button(0x21, 0x21)
 
+# Select controls
 SELECT_1 = Button(0x22, 0x18)
 SELECT_2 = Button(0x23, 0x19)
 SELECT_3 = Button(0x24, 0x1A)
@@ -146,8 +183,6 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad, zynthian_c
 
         # Ideally these settings could be customized by user via GUI.
         # No idea how to do that yet. 
-        self.global_audio_mode = True
-        self.global_midi_mode = True
         self.record_pressed = False
         self.cols = 4
         self.rows = 4
@@ -239,24 +274,11 @@ class zynthian_ctrldev_arturia_keylab_61_mk2(zynthian_ctrldev_zynpad, zynthian_c
                 if note == TRANSPORT_PLAY_PAUSE:
                     # play/pause button
                     # todo should there be one transport toggle? Seems weird these are separate. 
-                    if self.global_midi_mode:
-                        self.state_manager.toggle_midi_playback()
-                    if self.global_audio_mode:
-                        self.state_manager.toggle_audio_player()
-                    
+                    self.state_manager.send_cuia("TOGGLE_PLAY")
                 if note == TRANSPORT_STOP:
                     # play/pause button
                     # todo should there be one transport toggle? Seems weird these are separate. 
-                    if self.global_midi_mode:
-                        self.state_manager.stop_midi_playback()
-                    if self.global_audio_mode:
-                        self.state_manager.stop_audio_player()
-                if note == GLOBAL_IN.note:
-                    self.global_midi_mode = not self.global_midi_mode
-                    self.setButtonState(GLOBAL_IN.sysex, self.global_midi_mode)
-                if note == GLOBAL_OUT.note:
-                    self.global_audio_mode = not self.global_audio_mode
-                    self.setButtonState(GLOBAL_OUT.sysex, self.global_audio_mode)
+                    self.state_manager.send_cuia("STOP")
                 if note == TRANSPORT_RECORD.note:
                     self.record_pressed = not self.record_pressed
                     self.setButtonState(TRANSPORT_RECORD.sysex, self.record_pressed)
